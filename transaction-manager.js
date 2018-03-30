@@ -27,6 +27,7 @@ module.exports =  {
       await redisInterface.init();
 
 
+      await redisInterface.dropList('paybot_queued_payments');
 
       for(var key in payments)
       {
@@ -38,8 +39,6 @@ module.exports =  {
           success:false
         }
 
-
-        await redisInterface.dropList('paybot_queued_payments');
 
         var existingPayment = await redisInterface.findHashInRedis('paybot_payment',key)
 
@@ -63,8 +62,9 @@ module.exports =  {
 
         var existingPaymentData = JSON.parse(existingPayment);
 
-        if(existingPaymentData.paymentStatus.success==false)
+        if(existingPaymentData.paymentStatus.mined==false)
         {
+          console.log('push')
           await redisInterface.pushToRedisList('paybot_queued_payments',JSON.stringify(paymentData))
         }
 
@@ -92,11 +92,14 @@ module.exports =  {
        var hasQueuedTransaction = (queuedCount > 0);
        var hasPendingTransaction = (pendingCount > 0);
 
+       console.log('queuedCount',queuedCount)
+        console.log('pendingCount',pendingCount)
+
         if( hasQueuedTransaction && !hasPendingTransaction ){
 
           var nextQueuedTransactionData = await redisInterface.popFromRedisList('paybot_queued_payments'  )
           var nextQueuedTransaction = JSON.parse(nextQueuedTransactionData)
-          console.log(nextQueuedTransactionData)
+          console.log('nextQueuedTransactionData',nextQueuedTransactionData)
 
             if(nextQueuedTransaction!=null && nextQueuedTransaction.tokenAmount >= 1 && nextQueuedTransaction.paymentStatus.mined == false)
             {
@@ -132,8 +135,8 @@ module.exports =  {
              var existingPaymentData = JSON.parse(existingPayment);
 
              existingPaymentData.txHash = tx_hash;
-             existingPaymentData.pending = false;
-             existingPaymentData.mined = true;
+             existingPaymentData.paymentStatus.pending = false;
+             existingPaymentData.paymentStatus.mined = true;
 
             if(existingPayment)
             {
