@@ -8,7 +8,7 @@ var transactionManager = require('./transaction-manager');
 var accountConfig = require('./account.config').accounts;
 
 var owedPaymentContent = fs.readFileSync("./owed_payment.json");
-var owedPayments = JSON.parse(owedPaymentContent);
+var owedPayments = JSON.parse(owedPaymentContent).owedPayments;
 
 async function init()
 {
