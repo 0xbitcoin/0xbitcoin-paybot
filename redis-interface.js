@@ -257,7 +257,7 @@ module.exports =  {
              var array = [];
 
              //get first to last element
-             redisClient.ltrim(key, 0, 1, function (err, reply) {
+             redisClient.ltrim(key, -1, 0, function (err, reply) {
                 if(err){rejected(err); }
 
 
