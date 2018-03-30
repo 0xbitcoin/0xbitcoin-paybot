@@ -36,6 +36,7 @@ module.exports =  {
           queued:true,
           pending:false,
           mined:false,
+          broadcasted: false,
           success:false
         }
 
@@ -64,7 +65,7 @@ module.exports =  {
 
         if(existingPaymentData.paymentStatus.mined==false)
         {
-          console.log('push')
+
           await redisInterface.pushToRedisList('paybot_queued_payments',JSON.stringify(paymentData))
         }
 
@@ -74,7 +75,8 @@ module.exports =  {
       var self = this;
 
 
-      setTimeout(function(){self.sendTransfers()},0)
+       setTimeout(function(){self.sendTransfers()},0)
+      setTimeout(function(){self.monitorTransfers()},0)
 
 
   },
@@ -97,14 +99,30 @@ module.exports =  {
 
         if( hasQueuedTransaction && !hasPendingTransaction ){
 
-          var nextQueuedTransactionData = await redisInterface.popFromRedisList('paybot_queued_payments'  )
-          var nextQueuedTransaction = JSON.parse(nextQueuedTransactionData)
-          console.log('nextQueuedTransactionData',nextQueuedTransactionData)
+          var previewQueuedTransactionData = await redisInterface.peekFromRedisList('paybot_queued_payments'  )
 
-            if(nextQueuedTransaction!=null && nextQueuedTransaction.tokenAmount >= 1 && nextQueuedTransaction.paymentStatus.mined == false)
+
+            console.log(previewQueuedTransactionData)
+
+          var previewQueuedTransaction = JSON.parse(previewQueuedTransactionData)
+          var previewQueuedTransactionAddressTo = previewQueuedTransaction.address;
+
+
+          var matchingPaymentData = await redisInterface.findHashInRedis('paybot_payment',previewQueuedTransactionAddressTo);
+          var matchingPayment = JSON.parse(matchingPaymentData)
+
+
+          console.log(matchingPayment)
+
+            if(matchingPayment!=null && matchingPayment.tokenAmount >= 1 && matchingPayment.paymentStatus.broadcasted != true )
             {
+                  var nextQueuedTransactionData = await redisInterface.popFromRedisList('paybot_queued_payments'  )
+                  var nextQueuedTransaction = JSON.parse(nextQueuedTransactionData)
+
                   await this.handlePaymentTransaction( nextQueuedTransaction );
             }else{
+              var nextQueuedTransactionData = await redisInterface.popFromRedisList('paybot_queued_payments'  )
+
               console.log('skipping transaction....')
             }
 
@@ -135,8 +153,10 @@ module.exports =  {
              var existingPaymentData = JSON.parse(existingPayment);
 
              existingPaymentData.txHash = tx_hash;
-             existingPaymentData.paymentStatus.pending = false;
-             existingPaymentData.paymentStatus.mined = true;
+
+             existingPaymentData.paymentStatus.queued = true;
+             existingPaymentData.paymentStatus.pending = true;
+             existingPaymentData.paymentStatus.broadcasted = true;
 
             if(existingPayment)
             {
@@ -147,6 +167,77 @@ module.exports =  {
 
 
          }
+     },
+
+
+
+
+     async monitorTransfers()
+     {
+
+       var payment_txes = await redisInterface.getResultsOfKeyInRedis('paybot_payment')
+
+       if( payment_txes != null && payment_txes.length > 0)
+       {
+          var response = await this.checkMinedTransfers( payment_txes )
+       }
+
+
+      var self = this;
+
+        setTimeout(function(){self.monitorTransfers()},1000)
+
+     },
+
+     async checkMinedTransfers(transfers)
+     {
+       for(i in transfers)
+       {
+         var addressTo = transfers[i];
+         var txDataJSON = await redisInterface.findHashInRedis('paybot_payment',addressTo);
+         var transactionData = JSON.parse(txDataJSON)
+
+         var txHash = transactionData.txHash;
+
+         if( transactionData.broadcasted == true &&  transactionData.mined == false )
+         {
+           console.log('get receipt for ', txHash)
+
+
+           var liveTransactionReceipt = await this.requestTransactionReceipt(txHash)
+
+
+           if(liveTransactionReceipt != null )
+           {
+             transactionData.pending = false;
+             transactionData.mined = true;
+
+             var transaction_succeeded =  (web3utils.hexToNumber( liveTransactionReceipt.status) == 1 )
+
+             if( transaction_succeeded )
+             {
+               transactionData.succeeded = true;
+               console.log('transaction was mined and succeeded',tx_hash)
+             }else {
+               console.log('transaction was mined and failed',tx_hash)
+             }
+
+             await redisInterface.storeRedisHashData('paybot_payment',addressTo,JSON.stringify(transactionData) )
+
+
+           }
+
+
+         }
+       }
+     },
+
+     async requestTransactionReceipt(tx_hash)
+     {
+
+          var receipt = await this.web3.eth.getTransactionReceipt(tx_hash);
+
+          return receipt;
      },
 
      async transferTokens(recipientAddress,amount,paymentUUID)
