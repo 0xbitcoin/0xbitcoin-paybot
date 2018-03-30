@@ -1,0 +1,11 @@
+{
+  "name": "0xbitcoin-paybot",
+  "version": "1.0.0",
+  "description": "Queues a ton of transactions and fires them in order ",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "MIT"
+}
