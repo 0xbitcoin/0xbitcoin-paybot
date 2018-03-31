@@ -148,15 +148,17 @@ module.exports =  {
              console.log('broadcasted transaction -> ',tx_hash);
 
 
+             var ethBlock = await this.getEthBlockNumber();
 
              var existingPayment = await redisInterface.findHashInRedis('paybot_payment',payment.address)
              var existingPaymentData = JSON.parse(existingPayment);
 
              existingPaymentData.txHash = tx_hash;
 
-             existingPaymentData.paymentStatus.queued = true;
+             existingPaymentData.paymentStatus.queued = false;
              existingPaymentData.paymentStatus.pending = true;
              existingPaymentData.paymentStatus.broadcasted = true;
+             existingPaymentData.lastBroadcastedAtBlock = ethBlock;
 
             if(existingPayment)
             {
@@ -191,6 +193,8 @@ module.exports =  {
 
      async checkMinedTransfers(transfers)
      {
+       console.log('check mined')
+       var ethBlock = await this.getEthBlockNumber();
        for(i in transfers)
        {
          var addressTo = transfers[i];
@@ -199,7 +203,29 @@ module.exports =  {
 
          var txHash = transactionData.txHash;
 
-         if( transactionData.broadcasted == true &&  transactionData.mined == false )
+
+
+
+          //if it has been  pending for too long then rebroadcast it
+         if( transactionData.paymentStatus.pending == true
+          // && transactionData.paymentStatus.broadcasted == true
+           && transactionData.paymentStatus.mined == false
+           &&  (transactionData.lastBroadcastedAtBlock == null || transactionData.lastBroadcastedAtBlock < (ethBlock - 250) ) )
+         {
+
+           console.log('transaction was pending for too long - recycling',txHash)
+
+           transactionData.paymentStatus.pending = false;
+           transactionData.paymentStatus.broadcasted = false;
+
+           await redisInterface.storeRedisHashData('paybot_payment',addressTo,JSON.stringify(transactionData) )
+
+
+           continue;
+         }
+
+         if( transactionData.paymentStatus.broadcasted == true
+           &&  transactionData.paymentStatus.mined == false )
          {
            console.log('get receipt for ', txHash)
 
@@ -209,17 +235,17 @@ module.exports =  {
 
            if(liveTransactionReceipt != null )
            {
-             transactionData.pending = false;
-             transactionData.mined = true;
+             transactionData.paymentStatus.pending = false;
+             transactionData.paymentStatus.mined = true;
 
              var transaction_succeeded =  (web3utils.hexToNumber( liveTransactionReceipt.status) == 1 )
 
              if( transaction_succeeded )
              {
-               transactionData.succeeded = true;
-               console.log('transaction was mined and succeeded',tx_hash)
+               transactionData.paymentStatus.succeeded = true;
+               console.log('transaction was mined and succeeded',txHash)
              }else {
-               console.log('transaction was mined and failed',tx_hash)
+               console.log('transaction was mined and failed',txHash)
              }
 
              await redisInterface.storeRedisHashData('paybot_payment',addressTo,JSON.stringify(transactionData) )
